@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Upload - gipjazes flower</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Upload to gipjazes flower</h1>
+    <nav><a href="/">Back to gallery</a></nav>
+  </header>
+
+  <main>
+    <form id="uploadForm" method="post" enctype="multipart/form-data" action="/api/upload">
+      <label>Image: <input type="file" name="image" accept="image/*" required></label>
+      <label>Password: <input type="password" name="password" placeholder="upload password" required></label>
+      <button type="submit">Upload</button>
+    </form>
+    <div id="result"></div>
+  </main>
+
+  <script>
+    const form = document.getElementById('uploadForm');
+    const result = document.getElementById('result');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = new FormData(form);
+      result.textContent = 'Uploading...';
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: data });
+        const body = await res.json();
+        if (res.ok) result.innerHTML = `Uploaded: <a href="${body.url}" target="_blank">${body.filename}</a>`;
+        else result.textContent = body.error || 'Upload failed';
+      } catch (err) {
+        result.textContent = err.message;
+      }
+    });
+  </script>
+</body>
+</html>
