@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="/manifest.json">
+  <title>Gipjazes Flower Gallery</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body>
+  <header>
+    <h1>gipjazes flower</h1>
+    <nav><a href="/upload.html">Upload an image</a></nav>
+  </header>
+
+  <main>
+    <section id="gallery" class="grid"></section>
+  </main>
+
+  <script>
+    async function load() {
+      const res = await fetch('/api/images');
+      const imgs = await res.json();
+      const gallery = document.getElementById('gallery');
+      gallery.innerHTML = imgs.map(i => `
+        <figure>
+          <a href="${i.url}" download><img src="${i.url}" alt="${i.filename}"/></a>
+          <figcaption><a href="${i.url}" download>Download</a></figcaption>
+        </figure>
+      `).join('');
+    }
+    load().catch(err => console.error(err));
+  </script>
+</body>
+
+</html>
