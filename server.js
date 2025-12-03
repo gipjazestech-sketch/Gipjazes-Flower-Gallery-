@@ -2,58 +2,84 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config();
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
 
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const safe = Date.now() + '-' + file.originalname.replace(/\s+/g, '_');
-    cb(null, safe);
-  }
+// Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-function fileFilter(req, file, cb) {
-  const allowed = /jpeg|jpg|png|gif|webp/;
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (allowed.test(ext) || allowed.test(file.mimetype)) cb(null, true);
-  else cb(new Error('Only image files are allowed'));
-}
+// Configure Multer to use Cloudinary
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'flower-gallery',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+  },
+});
 
-const upload = multer({ storage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({ storage: storage });
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(UPLOAD_DIR));
+app.use(express.json()); // Enable JSON body parsing for password check if needed
 
-app.get('/api/images', (req, res) => {
-  fs.readdir(UPLOAD_DIR, (err, files) => {
-    if (err) return res.status(500).json({ error: 'Failed to read uploads' });
-    const images = files.filter(f => /\.(jpe?g|png|gif|webp)$/i.test(f))
-      .map(f => ({ filename: f, url: `/uploads/${encodeURIComponent(f)}` }));
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Get images from Cloudinary
+app.get('/api/images', async (req, res) => {
+  try {
+    // Fetch resources from Cloudinary
+    const result = await cloudinary.search
+      .expression('folder:flower-gallery')
+      .sort_by('created_at', 'desc')
+      .max_results(30)
+      .execute();
+
+    const images = result.resources.map(file => ({
+      filename: file.filename,
+      url: file.secure_url
+    }));
+
     res.json(images);
-  });
+  } catch (error) {
+    console.error('Cloudinary fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch images' });
+  }
 });
 
 app.post('/api/upload', upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
+  // Note: Password check logic is simplified here. 
+  // Ideally, check password BEFORE upload to save bandwidth/storage, 
+  // but Multer middleware runs first. 
+  // For better security, use a separate auth middleware or check before multer (requires different handling).
+
   const provided = (req.body && req.body.password) ? String(req.body.password) : '';
   const expected = process.env.UPLOAD_PASSWORD || '';
+  const ok = expected ? (provided === expected) : true; // Allow if no password set
 
-  // If UPLOAD_PASSWORD env var is set, require it. If not set, allow any non-empty password from form.
-  const ok = expected ? (provided === expected) : Boolean(provided);
-
-  if (!ok) {
-    // delete file
-    try { fs.unlinkSync(req.file.path); } catch (e) {}
+  if (!ok && expected) {
+    // If password failed, we should delete the uploaded file from Cloudinary
+    cloudinary.uploader.destroy(req.file.filename);
     return res.status(401).json({ error: 'Invalid upload password' });
   }
 
-  res.json({ success: true, filename: req.file.filename, url: `/uploads/${encodeURIComponent(req.file.filename)}` });
+  res.json({
+    success: true,
+    filename: req.file.filename,
+    url: req.file.path
+  });
 });
 
 app.listen(PORT, () => {
